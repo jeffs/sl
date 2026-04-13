@@ -3,8 +3,15 @@ mod sprites;
 use ncurses::*;
 use sprites::*;
 use std::env;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
+
+static INTERRUPTED: AtomicBool = AtomicBool::new(false);
+
+extern "C" fn handle_sigint(_: libc::c_int) {
+    INTERRUPTED.store(true, Ordering::Relaxed);
+}
 
 struct Options {
     accident: bool,
@@ -215,7 +222,11 @@ fn main() {
 
     initscr();
     unsafe {
-        libc::signal(libc::SIGINT, libc::SIG_IGN);
+        if env::var_os("SL_ESCAPABLE").is_some() {
+            libc::signal(libc::SIGINT, handle_sigint as *const () as libc::sighandler_t);
+        } else {
+            libc::signal(libc::SIGINT, libc::SIG_IGN);
+        }
     }
     noecho();
     curs_set(CURSOR_VISIBILITY::CURSOR_INVISIBLE);
@@ -234,7 +245,7 @@ fn main() {
         } else {
             add_d51(x, &opts, &mut smoke)
         };
-        if !ok {
+        if !ok || INTERRUPTED.load(Ordering::Relaxed) {
             break;
         }
         getch();
@@ -242,6 +253,8 @@ fn main() {
         thread::sleep(Duration::from_micros(40000));
         x -= 1;
     }
+    clear();
+    refresh();
     mvcur(0, COLS() - 1, LINES() - 1, 0);
     endwin();
 }
